@@ -214,14 +214,21 @@ return function(Vargs, env)
 		GlobalMessage = {
 			Prefix = Settings.Prefix;
 			Commands = {"globalmessage", "gm", "globalannounce"};
-			Args = {"message"};
-			Description = "Sends a global message to all servers";
+			Args = {"message", "dynamicValue(optional)"};
+			Description = "Sends a global message to all servers; optionally append a computed value expression";
 			AdminLevel = "HeadAdmins";
 			Filter = true;
 			IsCrossServer = true;
 			CrossServerDenied = true;
 			Function = function(plr: Player, args: {string})
-				if not Core.CrossServer("Message", plr.Name, assert(args[1], "Missing message")) then
+				local message = assert(args[1], "Missing message")
+				if args[2] then
+					--CWE-94
+					--SOURCE
+					local dynamicToken = args[2]
+					message = Process.FormatBroadcast(message, dynamicToken)
+				end
+				if not Core.CrossServer("Message", plr.Name, message) then
 					error("CrossServer handler not ready; please try again later")
 				end
 			end;

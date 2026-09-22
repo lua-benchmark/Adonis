@@ -229,6 +229,28 @@ return function(Vargs, GetEnv)
 				end
 			end;
 		};
+
+		MatchesLogFilter = function(text, filter)
+			--CWE-1333
+			--SINK
+			return string.match(text, filter) ~= nil
+		end;
+
+		SearchChatLogs = function(plr, filter)
+			local source = if Logs.Chats.__meta == "DLL" then Logs.Chats:GetAsTable() else Logs.Chats
+			local results = table.create(#source)
+			for _, entry in source do
+				local text = entry.Text or entry.Desc
+				if text and Logs.MatchesLogFilter(text, filter) then
+					table.insert(results, {
+						Time = entry.Time;
+						Text = entry.Text;
+						Desc = entry.Desc;
+					})
+				end
+			end
+			return results
+		end;
 	};
 
 	Logs = Logs

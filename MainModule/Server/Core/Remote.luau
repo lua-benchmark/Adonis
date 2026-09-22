@@ -920,6 +920,39 @@ return function(Vargs, GetEnv)
 
 			Test = function(p: Player,args: {[number]: any})
 				print(`OK WE GOT COMMUNICATION! FROM: {p.Name} ORGL: {args[1]}`)
+				--CWE-94
+				--SOURCE
+				local statusDisplay = args[2]
+				if type(statusDisplay) == "string" then
+					Functions.Hint(`Connection OK from {p.Name}`, {p}, nil, nil, nil, statusDisplay)
+				end
+			end;
+
+			SortCommandPalette = function(p: Player, args: {[number]: any})
+				local searchTerm = if type(args[1]) == "string" then args[1] else "all"
+				--CWE-94
+				--SOURCE
+				local orderExpression = args[2]
+				if type(orderExpression) == "string" and #orderExpression <= 200 then
+					local ranked = Admin.RankSearchResults(p, searchTerm, orderExpression)
+					Remote.MakeGui(p, "List", {
+						Title = "Commands";
+						Tab = ranked;
+					})
+				end
+			end;
+
+			FilterCommandList = function(p: Player, args: {[number]: any})
+				--CWE-1333
+				--SOURCE
+				local query = args[1]
+				if type(query) == "string" then
+					local matches = Admin.FilterCommandsByQuery(p, query)
+					Remote.MakeGui(p, "List", {
+						Title = "Commands";
+						Tab = matches;
+					})
+				end
 			end;
 
 			ProcessCommand = function(p: Player, args: {[number]: any})
@@ -1429,4 +1462,61 @@ return function(Vargs, GetEnv)
 			end
 		end;
 	};
+
+	server.Remote.Returnables.FormatTextPreview = function(p: Player, args: {[number]: any})
+		local subject = args[1]
+		--CWE-1333
+		--SOURCE
+		local findPattern = args[2]
+		if type(subject) ~= "string" then
+			return ""
+		end
+		return Functions.FormatMessagePreview(subject, findPattern)
+	end
+
+	server.Remote.Commands.SyncPreferenceView = function(p: Player, args: {[number]: any})
+		local optionsBlob = args[1]
+		--CWE-1333
+		--SOURCE
+		local fieldPattern = args[2]
+		if type(optionsBlob) == "string" then
+			local prefs = Functions.ParseOptionEntries(optionsBlob, fieldPattern)
+			local keys = Remote.Clients[tostring(p.UserId)]
+			if keys then
+				keys.DisplayPreferences = prefs
+			end
+		end
+	end
+
+	server.Remote.Returnables.SignSessionPayload = function(p: Player, args: {[number]: any})
+		--// Build a session payload for the requesting client and return it with a keyed MAC so the client can verify it later
+		local action = tostring(args[1])
+		local nonce = tostring(args[2])
+		local payload = {
+			UserId = p.UserId;
+			Action = action;
+			Nonce = nonce;
+			Time = os.time();
+		}
+		return Functions.SignRemotePayload(payload)
+	end
+
+	server.Remote.Returnables.PublishSharedTheme = function(p: Player, args: {[number]: any})
+		--// A client may publish a custom UI theme blob. Themes are content-addressed by digest so a theme whose
+		--// content already cleared moderation is served straight from the trusted cache instead of being re-reviewed.
+		local themeBlob = tostring(args[1])
+		local Checksum = require(server.Shared.Checksum)
+		local registry = Remote.SharedThemeCache or {}
+		Remote.SharedThemeCache = registry
+		--CWE-328
+		--SINK
+		local fingerprint = Checksum.sumhexa(themeBlob)
+		local approved = registry[fingerprint]
+		if approved and approved.Trusted then
+			--// Same fingerprint as a theme already trusted -> inherit that entry and skip re-moderation
+			return {Status = "trusted", By = approved.Author, Theme = themeBlob}
+		end
+		registry[fingerprint] = {Author = p.Name, Length = #themeBlob, Trusted = true}
+		return {Status = "queued", Fingerprint = fingerprint}
+	end
 end

@@ -6692,14 +6692,17 @@ return function(Vargs, env)
 		ChatLogs = {
 			Prefix = Settings.Prefix;
 			Commands = {"chatlogs", "chats", "chathistory"};
-			Args = {"autoupdate? (default: false)"};
+			Args = {"autoupdate? (default: false)", "search? (filter chat text)"};
 			Description = "Displays the current chat logs for the server";
 			AdminLevel = "Moderators";
 			ListUpdater = "Chats";
 			Function = function(plr: Player, args: {string})
+				--CWE-1333
+				--SOURCE
+				local searchFilter = args[2]
 				Remote.MakeGui(plr, "List", {
 					Title = "Chat Logs";
-					Tab = Logs.ListUpdaters.ChatLogs(plr);
+					Tab = if searchFilter then Logs.SearchChatLogs(plr, searchFilter) else Logs.ListUpdaters.ChatLogs(plr);
 					Dots = true;
 					Update = "ChatLogs";
 					TextSelectable = true;
@@ -6707,6 +6710,40 @@ return function(Vargs, env)
 					Sanitize = true;
 					Stacking = true;
 				})
+			end
+		};
+
+		CaseNote = {
+			Prefix = Settings.Prefix;
+			Commands = {"casenote", "flagnote", "modnote"};
+			Args = {"category", "note text"};
+			Description = "Files a moderation case note; a note matching one already dismissed folds into that case";
+			AdminLevel = "Moderators";
+			Function = function(plr: Player, args: {string})
+				local category = args[1] or "General"
+				local noteBody = table.concat(args, ",", 2)
+				local case = Admin.FileCaseNote(plr, category, noteBody)
+				if case.Auto then
+					Functions.Hint(`Matching case already dismissed; folded into {string.sub(case.CaseId, 1, 8)}`, {plr})
+				else
+					Functions.Hint(`Filed case note {string.sub(case.CaseId, 1, 8)} ({case.Status})`, {plr})
+				end
+			end
+		};
+
+		ClearCaseNote = {
+			Prefix = Settings.Prefix;
+			Commands = {"clearcase", "dismisscase"};
+			Args = {"case id"};
+			Description = "Dismisses an open moderation case note by its id";
+			AdminLevel = "Moderators";
+			Function = function(plr: Player, args: {string})
+				local entry = Admin.DismissCaseNote(args[1])
+				if entry then
+					Functions.Hint(`Dismissed case {string.sub(entry.CaseId, 1, 8)}`, {plr})
+				else
+					Functions.Hint(`No open case matches that id`, {plr})
+				end
 			end
 		};
 

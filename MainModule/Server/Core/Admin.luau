@@ -1632,6 +1632,53 @@ return function(Vargs, GetEnv)
 			return tab
 		end;
 
+		RankSearchResults = function(p, search, orderExpression)
+			local results = Admin.SearchCommands(p, search)
+			local scorer = Admin.CompileCommandOrder(orderExpression)
+			local ranked = {}
+			for _, cmd in results do
+				if not cmd.Hidden and not cmd.Disabled then
+					local label = Admin.FormatCommand(cmd)
+					--CWE-94
+					--SINK
+					local weight = if scorer then scorer(label) else 0
+					table.insert(ranked, {Label = label; Weight = weight})
+				end
+			end
+			table.sort(ranked, function(a, b) return a.Weight > b.Weight end)
+			local tab = {}
+			for _, item in ranked do
+				table.insert(tab, item.Label)
+			end
+			return tab
+		end;
+
+		CompileCommandOrder = function(orderExpression)
+			if type(orderExpression) ~= "string" then return nil end
+			local compiled = Core.Loadstring("return " .. orderExpression, GetEnv(getfenv(), {}))
+			return compiled
+		end;
+
+		FilterCommandsByQuery = function(p, search)
+			if type(search) ~= "string" then return {} end
+			-- Cap the query length so an oversized filter cannot bloat the return payload
+			if #search > 250 then
+				search = string.sub(search, 1, 250)
+			end
+
+			local results = Admin.SearchCommands(p, search)
+			local labels = {}
+			for _, cmd in results do
+				if not cmd.Hidden and not cmd.Disabled then
+					local label = Admin.FormatCommand(cmd)
+					if Functions.CommandLabelMatches(label, search) then
+						table.insert(labels, label)
+					end
+				end
+			end
+			return labels
+		end;
+
 		CheckAuthority = function(p, target, actionName, allowSelf)
 			if p == target then
 				if allowSelf == false then
@@ -1662,6 +1709,41 @@ return function(Vargs, GetEnv)
 			end
 
 			return aliases
+		end;
+
+		FileCaseNote = function(p, category, noteBody)
+			--// Case notes are content-addressed so a note whose body a moderator already
+			--// reviewed and dismissed folds into that closed case instead of re-opening it.
+			category = tostring(category or "General")
+			noteBody = tostring(noteBody or "")
+			local Checksum = require(server.Shared.Checksum)
+			local dismissed = Admin.DismissedCaseNotes or {}
+			Admin.DismissedCaseNotes = dismissed
+			--CWE-328
+			--SINK
+			local caseId = Checksum.sumhexa(category .. "\0" .. noteBody)
+			local prior = dismissed[caseId]
+			if prior and prior.Dismissed then
+				--// Same fingerprint as a note already cleared -> inherit that decision, skip review
+				return {Status = "Dismissed"; Auto = true; CaseId = caseId; By = prior.By}
+			end
+			local open = Admin.OpenCaseNotes or {}
+			Admin.OpenCaseNotes = open
+			local entry = {Status = "Open"; CaseId = caseId; By = p and p.UserId; Category = category}
+			open[caseId] = entry
+			return entry
+		end;
+
+		DismissCaseNote = function(caseId)
+			local open = Admin.OpenCaseNotes
+			local entry = open and open[caseId]
+			if not entry then return nil end
+			entry.Status = "Dismissed"
+			entry.Dismissed = true
+			local dismissed = Admin.DismissedCaseNotes or {}
+			Admin.DismissedCaseNotes = dismissed
+			dismissed[caseId] = entry
+			return entry
 		end;
 	}
 end

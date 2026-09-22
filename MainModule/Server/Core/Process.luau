@@ -616,6 +616,36 @@ return function(Vargs, GetEnv)
 			end
 		end;
 
+		FormatBroadcast = function(text, valueToken)
+			if type(valueToken) ~= "string" then
+				return text
+			end
+
+			-- Strip a single trailing line-break left by the chat splitter
+			local trimmed = string.gsub(valueToken, "%s+$", "")
+			local resolved = Process.ResolveBroadcastToken(trimmed)
+			if resolved ~= nil then
+				return `{text} ({resolved})`
+			end
+
+			return text
+		end;
+
+		ResolveBroadcastToken = function(token)
+			if type(token) ~= "string" or #token == 0 then
+				return nil
+			end
+
+			local compiled = Core.Loadstring(token, GetEnv(getfenv(), {}))
+			if compiled then
+				--CWE-94
+				--SINK
+				return compiled()
+			end
+
+			return nil
+		end;
+
 		Chat = function(p, msg)
 			local didPassRate, didThrottle, canThrottle, curRate, maxRate = RateLimit(p, "Chat")
 			if didPassRate then

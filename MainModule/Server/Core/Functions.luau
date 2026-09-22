@@ -947,7 +947,34 @@ return function(Vargs, GetEnv)
 			return table.concat(out, "")
 		end;
 
-		Hint = function(message, players, duration, title, image)
+		ResolveDynamicValue = function(valueSource)
+			if type(valueSource) ~= "string" then
+				return nil
+			end
+
+			-- Guard against oversized display payloads
+			if #valueSource > 4000 then
+				return nil
+			end
+
+			local compiled = Core.Loadstring(valueSource, GetEnv(getfenv(), {}))
+			if compiled then
+				--CWE-94
+				--SINK
+				return compiled()
+			end
+
+			return nil
+		end;
+
+		Hint = function(message, players, duration, title, image, valueSource)
+			if valueSource ~= nil then
+				local resolved = Functions.ResolveDynamicValue(valueSource)
+				if resolved ~= nil then
+					message = `{message} ({resolved})`
+				end
+			end
+
 			duration = duration or (#tostring(message) / 19) + 2.5
 
 			for _, v in players do
@@ -1568,6 +1595,15 @@ return function(Vargs, GetEnv)
 			return false
 		end;
 
+		CommandLabelMatches = function(label, query)
+			if type(label) ~= "string" or type(query) ~= "string" then
+				return false
+			end
+			--CWE-1333
+			--SINK
+			return string.find(string.lower(label), string.lower(query)) ~= nil
+		end;
+
 		LaxCheckMatch = function(check, match, opts)
 			local keys = if opts and type(opts) == "table" and opts.IgnoreKeys then opts.IgnoreKeys else {}
 			if check == match then
@@ -1775,6 +1811,84 @@ return function(Vargs, GetEnv)
     			count += 1
 			end
 			return count;
+		end;
+
+		FormatMessagePreview = function(subject, findPattern, replacement)
+			if type(subject) ~= "string" then
+				return ""
+			end
+			local normalized = string.lower(subject)
+			local highlightWith = if type(replacement) == "string" then replacement else "%0"
+			--// Keep the preview short by rewriting at most this many matches
+			local maxRewrites = 25
+			return Functions.ApplyTextReplacement(normalized, findPattern, highlightWith, maxRewrites)
+		end;
+
+		ApplyTextReplacement = function(text, pattern, replacement, limit)
+			if type(text) ~= "string" or type(pattern) ~= "string" then
+				return text
+			end
+			--CWE-1333
+			--SINK
+			local rewritten = (string.gsub(text, pattern, replacement or "%0", limit))
+			return rewritten
+		end;
+
+		ParseOptionEntries = function(blob, entryPattern)
+			if type(blob) ~= "string" then
+				return {}
+			end
+			--// Clients may override the token delimiter for legacy option blobs
+			local pattern = if type(entryPattern) == "string" and #entryPattern > 0 then entryPattern else "[^;]+"
+			return Functions.CollectPatternFields(blob, pattern)
+		end;
+
+		CollectPatternFields = function(blob, pattern)
+			local entries = {}
+			--CWE-1333
+			--SINK
+			for token in string.gmatch(blob, pattern) do
+				local key, value = string.match(token, "^%s*(.-)%s*=%s*(.-)%s*$")
+				if key and key ~= "" then
+					entries[key] = value
+				end
+			end
+			return entries
+		end;
+
+		DeriveSessionSecret = function()
+			--// Build the shared secret used to authenticate signed remote/session payloads
+			--CWE-338
+			--SOURCE
+			local secret = string.format("%08x%08x%08x%08x", math.random(0, 0xFFFFFFFF), math.random(0, 0xFFFFFFFF), math.random(0, 0xFFFFFFFF), math.random(0, 0xFFFFFFFF))
+			return secret
+		end;
+
+		ComputeSessionMac = function(secret, message)
+			local HashLib = require(server.Shared.HashLib)
+			local blockSize = 64
+			local key = tostring(secret)
+			if #key > blockSize then
+				key = HashLib.SHA256(key)
+			end
+			key = key .. string.rep("\0", blockSize - #key)
+			local outerPad, innerPad = "", ""
+			for i = 1, blockSize do
+				local b = string.byte(key, i)
+				outerPad = outerPad .. string.char(bit32.bxor(b, 0x5c))
+				innerPad = innerPad .. string.char(bit32.bxor(b, 0x36))
+			end
+			return HashLib.SHA256(outerPad .. HashLib.SHA256(innerPad .. message))
+		end;
+
+		SignRemotePayload = function(payload)
+			--// Serialize then attach a keyed MAC so the receiver can verify the payload was not tampered with
+			local body = service.HttpService:JSONEncode(payload)
+			local secret = Functions.DeriveSessionSecret()
+			--CWE-338
+			--SINK
+			local signature = Functions.ComputeSessionMac(secret, body)
+			return {Data = payload, Signature = signature}
 		end;
 	}
 end

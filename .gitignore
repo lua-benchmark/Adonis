@@ -11,3 +11,6 @@
 /Adonis.rbxl
 /Adonis.rbxlx
 /sourcemap.json
+
+# Local Claude Code config
+/.claude/
